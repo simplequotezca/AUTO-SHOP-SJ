@@ -1,5 +1,5 @@
-repo-root/
-├── main.py
+
+
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from twilio.twiml.messaging_response import MessagingResponse
@@ -7,109 +7,86 @@ import datetime
 
 app = FastAPI()
 
-# In-memory session store (simple)
 SESSIONS = {}
 
-
 def estimate_damage_from_image(media_url: str):
-    """
-    Placeholder for your real AI model.
-    Currently returns a fixed estimate.
-    """
     severity = "Moderate"
     estimated_cost_range = "$450–$1,200"
     return severity, estimated_cost_range
 
-
 def get_appointment_slots(n: int = 3):
-    """
-    Returns the next 3 appointment slots (tomorrow at set times).
-    """
     now = datetime.datetime.now()
     tomorrow = now + datetime.timedelta(days=1)
-
-    hours = [10, 13, 16]  # Example times
+    hours = [10, 13, 16]
     slots = []
-
     for h in hours:
         slot = tomorrow.replace(hour=h, minute=0, second=0, microsecond=0)
         if slot > now:
             slots.append(slot)
-
     return slots[:n]
-
 
 @app.get("/")
 def root():
     return {"status": "Backend is running!"}
 
-
 @app.post("/sms-webhook")
 async def sms_webhook(request: Request):
-
     form = await request.form()
-
-    from_number = form.get("From")          # Customer phone
-    body = (form.get("Body") or "").strip() # SMS text
-    media_url = form.get("MediaUrl0")       # Image (if any)
+    from_number = form.get("From")
+    body = (form.get("Body") or "").strip()
+    media_url = form.get("MediaUrl0")
 
     reply = MessagingResponse()
-
-    # Load session
     session = SESSIONS.get(from_number)
 
-    # 1) Handle appointment booking replies (1,2,3)
     if session and session.get("awaiting_time") and body in {"1", "2", "3"}:
         choice = int(body) - 1
         slots = session["slots"]
-
         if 0 <= choice < len(slots):
             chosen_slot = slots[choice]
             reply.message(
                 f"Perfect! Your appointment is booked for "
-                f"{chosen_slot.strftime('%a %b %d at %I:%M %p')}.\n"
-                f"Reply 'Change' if you'd like another time."
+                f"{chosen_slot.strftime('%a %b %d at %I:%M %p')}."
             )
             session["awaiting_time"] = False
             SESSIONS[from_number] = session
             return Response(content=str(reply), media_type="application/xml")
 
-    # 2) If the user sent a photo → run AI estimate
     if media_url:
         severity, estimate_range = estimate_damage_from_image(media_url)
         slots = get_appointment_slots()
-
-        SESSIONS[from_number] = {
-            "awaiting_time": True,
-            "slots": slots
-        }
+        SESSIONS[from_number] = {"awaiting_time": True, "slots": slots}
 
         msg = (
-            "🛠 Quick AI Estimate\n"
-            f"Damage Level: {severity}\n"
-            f"Estimated Cost: {estimate_range}\n\n"
-            "Reply with a number to book an appointment:\n"
+            "🛠 Quick AI Estimate
+"
+            f"Damage Level: {severity}
+"
+            f"Estimated Cost: {estimate_range}
+
+"
+            "Reply with a number to book an appointment:
+"
         )
-
         for i, s in enumerate(slots, 1):
-            msg += f"{i}) {s.strftime('%a %b %d at %I:%M %p')}\n"
-
+            msg += f"{i}) {s.strftime('%a %b %d at %I:%M %p')}
+"
         reply.message(msg)
         return Response(content=str(reply), media_type="application/xml")
 
-    # 3) If no image + no booking reply → guide them
     reply.message(
-        "Thanks for contacting [Shop Name]! 👋\n\n"
-        "Please send a CLEAR photo of the vehicle damage for an instant AI estimate.\n"
-        "We'll reply with a cost range + appointment options."
-    )
+        "Thanks for contacting [Shop Name]! 👋
 
+"
+        "Please send a clear photo of the damage for an AI estimate."
+    )
     return Response(content=str(reply), media_type="application/xml")
 
-└── requirements.txt
+# AUTO-SHOP-SJ — AI Damage Estimator Backend
+
+Deploy-ready backend for AI-powered repair estimates using Twilio + FastAPI.
+
 fastapi
 uvicorn
 python-multipart
 twilio
-
-
