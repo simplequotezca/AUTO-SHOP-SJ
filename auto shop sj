@@ -7,20 +7,14 @@ import datetime
 
 app = FastAPI()
 
-# Very simple in-memory "session" store: phone -> {awaiting_time: bool, slots: [datetimes]}
-# In production you would use a database or Redis instead.
+# In-memory session store (simple)
 SESSIONS = {}
 
 
 def estimate_damage_from_image(media_url: str):
     """
-    Placeholder for your AI damage estimator.
-
-    Right now it just returns a fixed 'Moderate' estimate.
-    Later you can:
-      - Download the image from media_url
-      - Run your ML model
-      - Return severity + cost range based on model output
+    Placeholder for your real AI model.
+    Currently returns a fixed estimate.
     """
     severity = "Moderate"
     estimated_cost_range = "$450–$1,200"
@@ -29,16 +23,16 @@ def estimate_damage_from_image(media_url: str):
 
 def get_appointment_slots(n: int = 3):
     """
-    Generate the next N appointment slots (example logic).
-    Here we offer 3 times for 'tomorrow': 10:00, 1:00, 4:00.
+    Returns the next 3 appointment slots (tomorrow at set times).
     """
     now = datetime.datetime.now()
     tomorrow = now + datetime.timedelta(days=1)
 
-    candidate_hours = [10, 13, 16]  # 10:00, 1:00, 4:00
+    hours = [10, 13, 16]  # Example times
     slots = []
-    for hour in candidate_hours:
-        slot = tomorrow.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+    for h in hours:
+        slot = tomorrow.replace(hour=h, minute=0, second=0, microsecond=0)
         if slot > now:
             slots.append(slot)
 
@@ -52,82 +46,70 @@ def root():
 
 @app.post("/sms-webhook")
 async def sms_webhook(request: Request):
-    # Twilio sends application/x-www-form-urlencoded
+
     form = await request.form()
 
-    from_number = form.get("From")          # Customer phone number
-    body = (form.get("Body") or "").strip() # SMS text content
-    media_url = form.get("MediaUrl0")       # First image URL (if any)
+    from_number = form.get("From")          # Customer phone
+    body = (form.get("Body") or "").strip() # SMS text
+    media_url = form.get("MediaUrl0")       # Image (if any)
 
     reply = MessagingResponse()
 
-    # Get existing session for this number (if any)
+    # Load session
     session = SESSIONS.get(from_number)
 
-    # 1) Handle replies like "1", "2", "3" for booking a slot
+    # 1) Handle appointment booking replies (1,2,3)
     if session and session.get("awaiting_time") and body in {"1", "2", "3"}:
-        try:
-            choice_index = int(body) - 1
-            slots = session.get("slots", [])
-            if 0 <= choice_index < len(slots):
-                chosen_slot = slots[choice_index]
+        choice = int(body) - 1
+        slots = session["slots"]
 
-                # TODO: integrate Google Calendar or shop system here
-                msg_text = (
-                    f"Perfect! We've booked you for "
-                    f"{chosen_slot.strftime('%a %b %d at %I:%M %p')}.\n"
-                    f"If you need to change it, reply 'Change'."
-                )
-                reply.message(msg_text)
+        if 0 <= choice < len(slots):
+            chosen_slot = slots[choice]
+            reply.message(
+                f"Perfect! Your appointment is booked for "
+                f"{chosen_slot.strftime('%a %b %d at %I:%M %p')}.\n"
+                f"Reply 'Change' if you'd like another time."
+            )
+            session["awaiting_time"] = False
+            SESSIONS[from_number] = session
+            return Response(content=str(reply), media_type="application/xml")
 
-                # Mark session as completed
-                session["awaiting_time"] = False
-                SESSIONS[from_number] = session
-
-                return Response(content=str(reply), media_type="application/xml")
-        except Exception:
-            # If anything goes wrong, fall through to the default reply
-            pass
-
-    # 2) If they sent an image, treat it as a new estimate request
+    # 2) If the user sent a photo → run AI estimate
     if media_url:
         severity, estimate_range = estimate_damage_from_image(media_url)
         slots = get_appointment_slots()
 
-        # Save session so that numeric replies can book appointments
         SESSIONS[from_number] = {
             "awaiting_time": True,
             "slots": slots
         }
 
-        # Build a nice SMS response with estimate + time options
-        text = (
+        msg = (
             "🛠 Quick AI Estimate\n"
             f"Damage Level: {severity}\n"
             f"Estimated Cost: {estimate_range}\n\n"
-            "Reply with a number to book an in-person visit:\n"
+            "Reply with a number to book an appointment:\n"
         )
-        for i, s in enumerate(slots, start=1):
-            text += f"{i}) {s.strftime('%a %b %d at %I:%M %p')}\n"
 
-        reply.message(text)
+        for i, s in enumerate(slots, 1):
+            msg += f"{i}) {s.strftime('%a %b %d at %I:%M %p')}\n"
+
+        reply.message(msg)
         return Response(content=str(reply), media_type="application/xml")
 
-    # 3) If no image and no valid booking choice, guide them to send a photo
+    # 3) If no image + no booking reply → guide them
     reply.message(
-        "Thanks for reaching out to [Shop Name]! 👋\n\n"
-        "To get an instant AI estimate, please send a clear photo of the vehicle damage.\n"
-        "You'll then receive a cost range and appointment options."
+        "Thanks for contacting [Shop Name]! 👋\n\n"
+        "Please send a CLEAR photo of the vehicle damage for an instant AI estimate.\n"
+        "We'll reply with a cost range + appointment options."
     )
 
-    # Twilio requires XML output
     return Response(content=str(reply), media_type="application/xml")
 
+└── requirements.txt
 fastapi
 uvicorn
 python-multipart
 twilio
-uvicorn main:app --host 0.0.0.0 --port $PORT
 
-└── requirements.txt
 
