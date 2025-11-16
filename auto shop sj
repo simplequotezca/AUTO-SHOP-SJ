@@ -1,0 +1,40 @@
+backend/
+│
+├── main.py
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
+from twilio.twiml.messaging_response import MessagingResponse
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"status": "Backend is running!"}
+
+@app.post("/sms-webhook")
+async def sms_webhook(request: Request):
+    # Parse Twilio's incoming form data
+    form = await request.form()
+    
+    user_message = form.get("Body")          # Text the customer sent
+    media_url = form.get("MediaUrl0")        # Image (if any)
+
+    # Create response
+    reply = MessagingResponse()
+
+    # Example: simple automated reply
+    if media_url:
+        reply.message(f"Thanks! We received your photo.\nWe'll review the damage and send an estimate shortly.")
+    else:
+        reply.message(f"Thanks! You said: '{user_message}'.\nSend a photo of the vehicle damage to begin your estimate.")
+
+    # Twilio requires XML output
+    return Response(content=str(reply), media_type="application/xml")
+
+└── requirements.txt
+fastapi
+uvicorn
+python-multipart
+twilio
+uvicorn main:app --host 0.0.0.0 --port $PORT
+
