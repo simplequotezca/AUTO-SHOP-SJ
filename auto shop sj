@@ -72,8 +72,7 @@ async def sms_webhook(request: Request):
             if 0 <= choice_index < len(slots):
                 chosen_slot = slots[choice_index]
 
-                # TODO: Here you can integrate Google Calendar or your shop system.
-                # For now, we just confirm the time to the customer.
+                # TODO: integrate Google Calendar or shop system here
                 msg_text = (
                     f"Perfect! We've booked you for "
                     f"{chosen_slot.strftime('%a %b %d at %I:%M %p')}.\n"
@@ -121,12 +120,14 @@ async def sms_webhook(request: Request):
         "You'll then receive a cost range and appointment options."
     )
 
+    # Twilio requires XML output
     return Response(content=str(reply), media_type="application/xml")
 
-└── requirements.txt
 fastapi
 uvicorn
 python-multipart
 twilio
+uvicorn main:app --host 0.0.0.0 --port $PORT
 
+└── requirements.txt
 
